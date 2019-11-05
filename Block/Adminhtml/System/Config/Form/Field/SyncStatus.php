@@ -3,10 +3,9 @@
 namespace Yotpo\Yotpo\Block\Adminhtml\System\Config\Form\Field;
 
 use Magento\Backend\Block\Template\Context;
-use Magento\Framework\App\Area;
 use Magento\Framework\Data\Form\Element\AbstractElement;
 use Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
-use Magento\Store\Model\App\Emulation as AppEmulation;
+use Magento\Store\Model\ScopeInterface;
 use Yotpo\Yotpo\Model\Config as YotpoConfig;
 use Yotpo\Yotpo\Model\SyncFactory as YotpoSyncFactory;
 
@@ -27,17 +26,12 @@ class SyncStatus extends \Magento\Config\Block\System\Config\Form\Field
     /**
      * @var OrderCollectionFactory
      */
-    private $orderCollectionFactory;
+    protected $_orderCollectionFactory;
 
     /**
      * @var YotpoSyncFactory
      */
-    private $yotpoSyncFactory;
-
-    /**
-     * @var AppEmulation
-     */
-    private $appEmulation;
+    protected $_yotpoSyncFactory;
 
     /**
      * @method __construct
@@ -45,7 +39,6 @@ class SyncStatus extends \Magento\Config\Block\System\Config\Form\Field
      * @param  YotpoConfig            $yotpoConfig
      * @param  OrderCollectionFactory $orderCollectionFactory
      * @param  YotpoSyncFactory       $yotpoSyncFactory
-     * @param  AppEmulation           $appEmulation
      * @param  array                  $data
      */
     public function __construct(
@@ -53,13 +46,11 @@ class SyncStatus extends \Magento\Config\Block\System\Config\Form\Field
         YotpoConfig $yotpoConfig,
         OrderCollectionFactory $orderCollectionFactory,
         YotpoSyncFactory $yotpoSyncFactory,
-        AppEmulation $appEmulation,
         array $data = []
     ) {
         $this->yotpoConfig = $yotpoConfig;
-        $this->orderCollectionFactory = $orderCollectionFactory;
-        $this->yotpoSyncFactory = $yotpoSyncFactory;
-        $this->appEmulation = $appEmulation;
+        $this->_orderCollectionFactory = $orderCollectionFactory;
+        $this->_yotpoSyncFactory = $yotpoSyncFactory;
         parent::__construct($context, $data);
     }
 
@@ -121,7 +112,7 @@ class SyncStatus extends \Magento\Config\Block\System\Config\Form\Field
 
     protected function getOrderCollection()
     {
-        $collection = $this->orderCollectionFactory->create();
+        $collection = $this->_orderCollectionFactory->create();
         $collection->getSelect()->joinLeft(
             ['yotpo_sync'=>$collection->getTable('yotpo_sync')],
             "main_table.entity_id = yotpo_sync.entity_id AND main_table.store_id = yotpo_sync.store_id AND yotpo_sync.entity_type = 'orders'",
@@ -142,35 +133,28 @@ class SyncStatus extends \Magento\Config\Block\System\Config\Form\Field
         ];
 
         foreach ($this->getStoreIds() as $key => $storeId) {
-            $this->appEmulation->startEnvironmentEmulation($storeId, Area::AREA_FRONTEND, true);
-
-            $orderStatuses = $this->yotpoConfig->getCustomOrderStatus($storeId);
-            $afterDate = $this->yotpoConfig->getOrdersSyncAfterDate($storeId);
-
             $status['total_orders'] += $this->getOrderCollection()
-                ->addAttributeToFilter('main_table.status', ['in' => $orderStatuses])
+                ->addAttributeToFilter('main_table.status', ['in' => $this->yotpoConfig->getCustomOrderStatus($storeId, ScopeInterface::SCOPE_STORE)])
                 ->addAttributeToFilter('main_table.store_id', $storeId)
-                ->addAttributeToFilter('main_table.created_at', ['gteq' => $afterDate])
+                ->addAttributeToFilter('main_table.created_at', ['gteq' => $this->yotpoConfig->getOrdersSyncAfterDate($storeId, ScopeInterface::SCOPE_STORE)])
                 ->getSize();
             $status['total_orders_synced'] += $this->getOrderCollection()
-                ->addAttributeToFilter('main_table.status', ['in' => $orderStatuses])
+                ->addAttributeToFilter('main_table.status', ['in' => $this->yotpoConfig->getCustomOrderStatus($storeId, ScopeInterface::SCOPE_STORE)])
                 ->addAttributeToFilter('main_table.store_id', $storeId)
-                ->addAttributeToFilter('main_table.created_at', ['gteq' => $afterDate])
+                ->addAttributeToFilter('main_table.created_at', ['gteq' => $this->yotpoConfig->getOrdersSyncAfterDate($storeId, ScopeInterface::SCOPE_STORE)])
                 ->addAttributeToFilter('yotpo_sync.sync_flag', 1)
                 ->getSize();
             $status['total_orders_synced_all'] += $this->getOrderCollection()
                 ->addAttributeToFilter('main_table.store_id', $storeId)
-                ->addAttributeToFilter('main_table.created_at', ['gteq' => $afterDate])
+                ->addAttributeToFilter('main_table.created_at', ['gteq' => $this->yotpoConfig->getOrdersSyncAfterDate($storeId, ScopeInterface::SCOPE_STORE)])
                 ->addAttributeToFilter('yotpo_sync.sync_flag', 1)
                 ->getSize();
-
-            $this->appEmulation->stopEnvironmentEmulation();
         }
 
-        $lastSyncDate = $this->yotpoSyncFactory->create()->getCollection()
+        $lastSyncDate = $this->_yotpoSyncFactory->create()->getCollection()
             ->addFieldToFilter('entity_type', 'orders')
             ->addFieldToFilter('store_id', ['in' => $this->getStoreIds()])
-            ->setOrder('sync_date', 'DESC')
+            ->setOrder('sync_flag', 'DESC')
             ->setPageSize(1)
             ->getFirstItem();
 
