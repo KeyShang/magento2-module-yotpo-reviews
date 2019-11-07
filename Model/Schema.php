@@ -160,18 +160,28 @@ class Schema
             $orderData['currency_iso'] = $order->getOrderCurrency()->getCode();
             $orderData['email'] = $order->getCustomerEmail();
             $orderData['customer_name'] = trim($order->getCustomerFirstName() . ' ' . $order->getCustomerLastName());
+            $orderData['platform'] = 'magento2';
             if (!$orderData['customer_name'] && ($billingAddress = $order->getBillingAddress())) {
                 $orderData['customer_name'] = trim($billingAddress->getFirstname() . ' ' . $billingAddress->getLastname());
             }
             if (!$order->getCustomerIsGuest()) {
                 $orderData['user_reference'] = $order->getCustomerId();
             }
-            $orderData['platform'] = 'magento';
+            if (($fulfillmentDate = $this->getOrderFulfillmentDate($order))) {
+                $orderData['fulfillment_status'] = 'fulfilled';
+                $orderData['fulfillment_status_date'] = $fulfillmentDate;
+            }
         } catch (\Exception $e) {
             $this->yotpoConfig->log("Schema::prepareOrderData() - exception: " . $e->getMessage() . "\n" . $e->getTraceAsString(), "error");
             return [];
         }
 
         return $orderData;
+    }
+
+    private function getOrderFulfillmentDate(Order $order)
+    {
+        $lastStatus = $order->getStatusHistoryCollection()->getFirstItem();
+        return ($lastStatus) ? $lastStatus->getCreatedAt() : null;
     }
 }
